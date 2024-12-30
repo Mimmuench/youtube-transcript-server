@@ -1,19 +1,14 @@
 from flask import Flask, request, jsonify
 from youtube_transcript_api import YouTubeTranscriptApi
 from flask_cors import CORS
-import requests
-import os
-
-from flask import Flask, request, jsonify
-from youtube_transcript_api import YouTubeTranscriptApi
 import re
-from openai import OpenAI, AsyncOpenAI
-from openai import OpenAIError
 import os
-from auth import require_custom_authentication
+import logging
+import asyncio
+import tiktoken
+from openai import AsyncOpenAI, OpenAIError
 from dotenv import load_dotenv
-import os
-from openai import AsyncOpenAI
+from auth import require_custom_authentication  # Ensure you have your auth.py file correctly set up
 
 # Load environment variables from the .env file
 load_dotenv()
@@ -28,43 +23,29 @@ if openai_api_key is None:
 # Initialize the OpenAI client with the API key
 client = AsyncOpenAI(api_key=openai_api_key)
 
-# Add your other application code here
-
-import logging
-import asyncio
-import tiktoken
-
-load_dotenv()
-
-app = Flask(__name__)
-
 # Set up logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Set up OpenAI API key
-client = AsyncOpenAI(
-    # This is the default and can be omitted
-    api_key=os.environ.get("OPENAI_API_KEY"),
-)
+# Initialize the Flask application
+app = Flask(__name__)
+CORS(app)  # Enable Cross-Origin Resource Sharing (CORS)
 
 def get_youtube_id(url):
-    # Extract video ID from YouTube URL
+    """Extract YouTube video ID from URL."""
     video_id = re.search(r'(?:v=|\/)([0-9A-Za-z_-]{11}).*', url)
     return video_id.group(1) if video_id else None
 
 def process_transcript(video_id):
-    proxy_address=os.environ.get("PROXY")
-    transcript = YouTubeTranscriptApi.get_transcript(video_id, proxies = {"http": proxy_address,"https": proxy_address})
+    """Fetch the transcript for a YouTube video."""
+    proxy_address = os.environ.get("PROXY")
+    transcript = YouTubeTranscriptApi.get_transcript(video_id, proxies={"http": proxy_address, "https": proxy_address})
     full_text = ' '.join([entry['text'] for entry in transcript])
     return full_text
 
 def chunk_text(text, max_tokens=16000):
-    """
-    Splits the text into chunks of approximately max_tokens tokens each.
-    """
-    # Initialize tokenizer
-    tokenizer = tiktoken.encoding_for_model("gpt-4o-mini")
+    """Split the text into chunks of approximately max_tokens tokens."""
+    tokenizer = tiktoken.encoding_for_model("gpt-4")  # Ensure this matches the correct OpenAI model you're using
 
     words = text.split()
     chunks = []
@@ -72,33 +53,28 @@ def chunk_text(text, max_tokens=16000):
     current_token_count = 0
 
     for word in words:
-        # Estimate token count for the word
-        word_token_count = len(tokenizer.encode(word + " "))  # Add space to ensure accurate token count
+        word_token_count = len(tokenizer.encode(word + " "))
 
-        # If adding this word exceeds the max token limit, finalize the current chunk
         if current_token_count + word_token_count > max_tokens:
             chunks.append(' '.join(current_chunk))
             current_chunk = []
             current_token_count = 0
 
-        # Add the word to the current chunk
         current_chunk.append(word)
         current_token_count += word_token_count
 
-    # Append the last chunk
     if current_chunk:
         chunks.append(' '.join(current_chunk))
 
     return chunks
 
 async def process_chunk(chunk):
+    """Process a single chunk using GPT-4 for text improvement."""
     try:
         response = await client.chat.completions.create(
-            model="gpt-4o-mini",
+            model="gpt-4",  # Update to the correct GPT model
             messages=[
-                {"role": "system", "content": """You are a helpful assistant that improves text formatting and adds punctuation. 
-                 You will be given texts from YouTube transcriptions and your task is to apply good formatting.
-                 Do NOT modify individual words."""},
+                {"role": "system", "content": "You are a helpful assistant that improves text formatting and adds punctuation."},
                 {"role": "user", "content": chunk}
             ]
         )
@@ -107,20 +83,18 @@ async def process_chunk(chunk):
         return f"OpenAI API error: {str(e)}"
 
 async def improve_text_with_gpt4(text):
+    """Improve the full transcript text using GPT-4."""
     if not client.api_key:
         return "OpenAI API key not found. Please set the OPENAI_API_KEY environment variable."
 
     chunks = chunk_text(text)
-
-    # Use asyncio.gather to run all tasks concurrently
     tasks = [process_chunk(chunk) for chunk in chunks]
     improved_chunks = await asyncio.gather(*tasks)
-
-    # Combine all improved chunks back into one text
     return ' '.join(improved_chunks)
 
 @app.route('/transcribe', methods=['POST'])
 def transcribe():
+    """Handle the POST request to transcribe a YouTube video."""
     youtube_url = request.json.get('url')
     if not youtube_url:
         return jsonify({"error": "No YouTube URL provided"}), 400
@@ -129,35 +103,46 @@ def transcribe():
     if not video_id:
         return jsonify({"error": "Invalid YouTube URL"}), 400
 
-    return jsonify({"message": "Transcription API is working!"})
     try:
         logger.info(f"videoid = {video_id}")
         transcript_text = process_transcript(video_id)
-        logger.info(f"text = {transcript_text}")
+        logger.info(f"Transcript text = {transcript_text}")
         improved_text = asyncio.run(improve_text_with_gpt4(transcript_text))
 
         return jsonify({"result": improved_text})
-    
+
     except Exception as e:
         logger.exception(f"An unexpected error occurred: {e}")
         return jsonify({"error": "An unexpected error occurred"}), 500
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=8080)
-    
-from flask import Flask
-import os  # Add this to import the os module
-
-app = Flask(__name__)
-
-@app.route("/")
+@app.route("/", methods=["GET"])
 def home():
+    """Home route for testing API status."""
     return "Hello, World!"
 
-# Ensure this block is at the bottom of the file
-if __name__ == "__main__":
+if __name__ == '__main__':
     # Get the PORT from environment variable or default to 8080
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
-    
+from dotenv import load_dotenv
+import os
+
+# Load environment variables from .env file
+load_dotenv()
+
+# Retrieve specific environment variables
+openai_api_key = os.getenv("OPENAI_API_KEY")
+proxy = os.getenv("PROXY")
+port = os.getenv("PORT")
+
+# Check and print them to verify
+print(f"OpenAI API Key: {openai_api_key}")
+print(f"Proxy URL: {proxy}")
+print(f"Port: {port}")
+
+# Verify if .env was loaded successfully
+if openai_api_key:
+    print("dotenv loaded successfully!")
+else:
+    print("dotenv load failed!")
