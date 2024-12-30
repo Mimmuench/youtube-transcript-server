@@ -120,7 +120,6 @@ async def improve_text_with_gpt4(text):
     return ' '.join(improved_chunks)
 
 @app.route('/transcribe', methods=['POST'])
-@require_custom_authentication
 def transcribe():
     youtube_url = request.json.get('url')
     if not youtube_url:
@@ -130,6 +129,7 @@ def transcribe():
     if not video_id:
         return jsonify({"error": "Invalid YouTube URL"}), 400
 
+    return jsonify({"message": "Transcription API is working!"})
     try:
         logger.info(f"videoid = {video_id}")
         transcript_text = process_transcript(video_id)
