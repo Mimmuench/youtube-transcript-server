@@ -12,6 +12,24 @@ from openai import OpenAIError
 import os
 from auth import require_custom_authentication
 from dotenv import load_dotenv
+import os
+from openai import AsyncOpenAI
+
+# Load environment variables from the .env file
+load_dotenv()
+
+# Retrieve the OpenAI API key from environment variables
+openai_api_key = os.getenv("OPENAI_API_KEY")
+
+# Check if the API key is loaded correctly (optional, for debugging)
+if openai_api_key is None:
+    raise ValueError("API key not found in environment variables")
+
+# Initialize the OpenAI client with the API key
+client = AsyncOpenAI(api_key=openai_api_key)
+
+# Add your other application code here
+
 import logging
 import asyncio
 import tiktoken
@@ -126,3 +144,4 @@ def transcribe():
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
+    
