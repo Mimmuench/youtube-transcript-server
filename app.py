@@ -145,3 +145,19 @@ def transcribe():
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=8080)
     
+from flask import Flask
+import os  # Add this to import the os module
+
+app = Flask(__name__)
+
+@app.route("/")
+def home():
+    return "Hello, World!"
+
+# Ensure this block is at the bottom of the file
+if __name__ == "__main__":
+    # Get the PORT from environment variable or default to 8080
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+    
